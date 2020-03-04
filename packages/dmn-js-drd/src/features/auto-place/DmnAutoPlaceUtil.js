@@ -52,7 +52,8 @@ function getDRGElementPosition(source, element) {
   var verticalDistance = getConnectedDistance(source, 'y', function(connection) {
     return !is(connection, 'dmn:Association');
   }, {
-    connectionTarget: source
+    connectionTarget: source,
+    defaultDistance: 100
   });
 
   var position = {
@@ -62,7 +63,7 @@ function getDRGElementPosition(source, element) {
 
   var escapeDirection = {
     x: {
-      margin: 30,
+      margin: 60,
       rowSize: 20
     }
   };

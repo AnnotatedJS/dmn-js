@@ -15,6 +15,11 @@ import {
   isAny
 } from 'dmn-js-shared/lib/util/ModelUtil';
 
+import {
+  getMid,
+  getOrientation
+} from 'diagram-js/lib/layout/LayoutUtil';
+
 import CommandInterceptor from 'diagram-js/lib/command/CommandInterceptor';
 
 
@@ -34,22 +39,122 @@ export default function DrdUpdater(
   this._drdFactory = drdFactory;
   this._drdRules = drdRules;
 
+  var modeling = injector.get('modeling');
+
   var self = this;
+
+  function isInformationRequirementWithSameOrientation(connection, orientation) {
+    return is(connection, 'dmn:InformationRequirement')
+      && getOrientation(connection.source, connection.target).split('-')[0] === orientation.split('-')[0];
+  }
 
   function cropConnection(context) {
     var connection = context.connection,
         cropped = context.cropped;
 
-    if (!cropped) {
+    if (!is(connection, 'dmn:InformationRequirement') && !cropped) {
       connection.waypoints = connectionDocking.getCroppedWaypoints(connection);
 
       context.cropped = true;
     }
+
+    var source = connection.source,
+        target = connection.target;
+
+    var orientation = getOrientation(source, target);
+
+    var incoming = target.incoming,
+        incomingInformationRequirements = incoming.filter(i => {
+          return isInformationRequirementWithSameOrientation(i, orientation);
+        });
+
+    if (!incomingInformationRequirements.length) {
+      return;
+    }
+
+    var dockingPoint,
+        dockingPoints;
+
+    var sourceMid = getMid(source);
+
+    if (orientation.includes('bottom')) {
+      incomingInformationRequirements = incomingInformationRequirements.sort((a, b) => {
+        return getMid(a.source).x - getMid(b.source).x;
+      });
+
+      dockingPoints = incomingInformationRequirements.map((_, index) => {
+        return {
+          x: target.x + target.width / (incomingInformationRequirements.length + 1) * (index + 1),
+          y: target.y + target.height
+        };
+      });
+
+      dockingPoint = {
+        x: sourceMid.x,
+        y: source.y
+      };
+    } else if (orientation.includes('top')) {
+      incomingInformationRequirements = incomingInformationRequirements.sort((a, b) => {
+        return getMid(a.source).x - getMid(b.source).x;
+      });
+
+      dockingPoints = incomingInformationRequirements.map((_, index) => {
+        return {
+          x: target.x + target.width / (incomingInformationRequirements.length + 1) * (index + 1),
+          y: target.y
+        };
+      });
+
+      dockingPoint = {
+        x: sourceMid.x,
+        y: source.y + source.height
+      };
+    } else if (orientation.includes('right')) {
+      incomingInformationRequirements = incomingInformationRequirements.sort((a, b) => {
+        return getMid(a.source).y - getMid(b.source).y;
+      });
+
+      dockingPoints = incomingInformationRequirements.map((_, index) => {
+        return {
+          x: target.x + target.width,
+          y: target.y + target.height / (incomingInformationRequirements.length + 1) * (index + 1)
+        };
+      });
+
+      dockingPoint = {
+        x: source.x,
+        y: sourceMid.y
+      };
+    } else {
+      incomingInformationRequirements = incomingInformationRequirements.sort((a, b) => {
+        return getMid(a.source).y - getMid(b.source).y;
+      });
+
+      dockingPoints = incomingInformationRequirements.map((_, index) => {
+        return {
+          x: target.x,
+          y: target.y + target.height / (incomingInformationRequirements.length + 1) * (index + 1)
+        };
+      });
+
+      dockingPoint = {
+        x: source.x + source.width,
+        y: sourceMid.y
+      };
+    }
+
+    modeling.reconnectStart(connection, connection.source, dockingPoint);
+
+    incomingInformationRequirements.forEach((informationRequirement, index) => {
+      var dockingPoint = dockingPoints[ index ];
+
+      modeling.reconnectEnd(informationRequirement, target, dockingPoint);
+    });
   }
 
-  this.executed([
+  this.postExecuted([
     'connection.create',
-    'connection.layout'
+    // 'connection.layout'
   ], cropConnection, true);
 
   this.reverted([ 'connection.layout' ], function(context) {
